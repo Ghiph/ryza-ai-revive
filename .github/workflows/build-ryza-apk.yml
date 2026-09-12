@@ -2,6 +2,7 @@ name: Build Ryza Chat APK
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - master
@@ -11,29 +12,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+
+      # ============================================================
+      # 1. CHECKOUT SOURCE
+      # ============================================================
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+
+      # ============================================================
+      # 2. SETUP JAVA 17
+      # ============================================================
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
+
+      # ============================================================
+      # 3. SETUP ANDROID SDK
+      # ============================================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
+
+      # ============================================================
+      # 4. INSTALL ANDROID SDK 34
+      # ============================================================
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          set -e
 
-      - name: Set up Gradle
+          sdkmanager "platforms;android-34" \
+                     "build-tools;34.0.0"
+
+          yes | sdkmanager --licenses > /dev/null || true
+
+
+      # ============================================================
+      # 5. SETUP GRADLE 8.7
+      # ============================================================
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.7'
+          gradle-version: "8.7"
 
-      - name: Verify Ryza source
-        shell: bash
+
+      # ============================================================
+      # 6. VERIFY SOURCE FILES
+      # ============================================================
+      - name: Verify source files
         run: |
           set -e
 
@@ -44,73 +73,247 @@ jobs:
           test -f web/js/api.js
           test -f web/js/config.js
 
+          echo "Checking required world index files..."
+
           test -f web/assets/_index/scenes.json
           test -f web/assets/_index/voice_bank.json
           test -f web/assets/_index/world_hierarchy.json
+          test -f web/assets/_index/npc_placement.json
+          test -f web/assets/_index/stage_background_map.json
 
-          echo "Ryza web assets found."
-
-      - name: Verify Fish Audio support
-        shell: bash
-        run: |
-          set -e
+          echo "Checking Fish Audio source..."
 
           grep -qi "fish" web/js/app.js
           grep -qi "fishaudio" web/js/api.js
           grep -qi "fishaudio-s21pro-flash" web/js/config.js
 
-          echo "Fish Audio support found."
+          echo "Source verification PASSED."
 
-      - name: Verify Android configuration
-        shell: bash
+
+      # ============================================================
+      # 7. PREPARE ANDROID ASSETS
+      #
+      # IMPORTANT:
+      #
+      # web/
+      # ├── index.html
+      # ├── js/
+      # ├── css/
+      # ├── vendor/
+      # └── assets/
+      #     ├── _index/
+      #     ├── audio/
+      #     ├── spine/
+      #     └── ...
+      #
+      # Android membutuhkan:
+      #
+      # APK assets/
+      # ├── index.html
+      # ├── js/
+      # ├── css/
+      # ├── vendor/
+      # ├── _index/
+      # ├── audio/
+      # ├── spine/
+      # └── ...
+      #
+      # Jadi web/assets/* harus FLATTEN ke root assets Android.
+      # ============================================================
+      - name: Prepare flattened Android assets
         run: |
           set -e
 
-          grep -q 'applicationId "com.ryza.chat.fish"' android/app/build.gradle
-          grep -q 'assets.srcDirs = \["../../web"\]' android/app/build.gradle
+          echo "Preparing Android assets..."
 
-          echo "Android configuration is correct."
+          rm -rf android/app/src/main/assets
 
+          mkdir -p android/app/src/main/assets
+
+          # Copy semua file/folder dari web/
+          # KECUALI folder web/assets
+          rsync -a \
+            --exclude="assets/" \
+            web/ \
+            android/app/src/main/assets/
+
+          # Flatten isi web/assets/ langsung ke Android assets/
+          rsync -a \
+            web/assets/ \
+            android/app/src/main/assets/
+
+          echo ""
+          echo "Checking staged Android assets..."
+
+          test -f android/app/src/main/assets/index.html
+          test -f android/app/src/main/assets/js/app.js
+          test -f android/app/src/main/assets/js/api.js
+          test -f android/app/src/main/assets/js/config.js
+
+          test -f android/app/src/main/assets/_index/scenes.json
+          test -f android/app/src/main/assets/_index/voice_bank.json
+          test -f android/app/src/main/assets/_index/world_hierarchy.json
+          test -f android/app/src/main/assets/_index/npc_placement.json
+          test -f android/app/src/main/assets/_index/stage_background_map.json
+
+          echo ""
+          echo "Staged assets:"
+          find android/app/src/main/assets -maxdepth 2 -type f | head -100
+
+          echo ""
+          echo "Asset preparation PASSED."
+
+
+      # ============================================================
+      # 8. VERIFY GRADLE CONFIGURATION
+      # ============================================================
+      - name: Verify Android configuration
+        run: |
+          set -e
+
+          echo "Checking android/app/build.gradle..."
+
+          grep -F 'applicationId "com.ryza.chat.fish"' \
+            android/app/build.gradle
+
+          grep -F 'assets.srcDirs = ["src/main/assets"]' \
+            android/app/build.gradle
+
+          echo ""
+          echo "Android configuration PASSED."
+
+
+      # ============================================================
+      # 9. VERIFY FISH AUDIO SUPPORT
+      # ============================================================
+      - name: Verify Fish Audio support
+        run: |
+          set -e
+
+          echo "Checking Fish Audio support..."
+
+          grep -qi "fish" web/js/app.js
+          grep -qi "fishaudio" web/js/api.js
+          grep -qi "fishaudio-s21pro-flash" web/js/config.js
+
+          echo "Fish Audio support PASSED."
+
+
+      # ============================================================
+      # 10. CLEAN PREVIOUS BUILD
+      # ============================================================
+      - name: Clean Android build
+        working-directory: android
+        run: |
+          gradle --no-daemon clean
+
+
+      # ============================================================
+      # 11. BUILD DEBUG APK
+      #
+      # Gradle akan:
+      # - compile
+      # - package assets
+      # - zip APK
+      # - sign debug APK
+      #
+      # JANGAN memodifikasi APK setelah step ini.
+      # ============================================================
       - name: Build debug APK
         working-directory: android
         run: |
-          gradle --no-daemon --stacktrace clean assembleDebug
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
 
+
+      # ============================================================
+      # 12. VERIFY APK FILE
+      # ============================================================
       - name: Verify APK
-        shell: bash
         run: |
           set -e
 
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
 
+          echo "========================================"
+          echo "APK INFORMATION"
+          echo "========================================"
+
           test -f "$APK"
 
-          echo "APK created:"
           ls -lh "$APK"
 
           echo ""
-          echo "Checking APK assets..."
+          echo "========================================"
+          echo "CHECKING APK ASSETS"
+          echo "========================================"
 
           unzip -l "$APK" | grep -F "assets/index.html"
           unzip -l "$APK" | grep -F "assets/js/app.js"
           unzip -l "$APK" | grep -F "assets/js/api.js"
           unzip -l "$APK" | grep -F "assets/js/config.js"
-          unzip -l "$APK" | grep -F "assets/assets/_index/scenes.json"
-          unzip -l "$APK" | grep -F "assets/assets/_index/voice_bank.json"
-          unzip -l "$APK" | grep -F "assets/assets/_index/world_hierarchy.json"
 
           echo ""
-          echo "Checking Fish Audio code..."
+          echo "========================================"
+          echo "CHECKING WORLD INDEX"
+          echo "========================================"
+
+          unzip -l "$APK" | grep -F "assets/_index/scenes.json"
+          unzip -l "$APK" | grep -F "assets/_index/voice_bank.json"
+          unzip -l "$APK" | grep -F "assets/_index/world_hierarchy.json"
+          unzip -l "$APK" | grep -F "assets/_index/npc_placement.json"
+          unzip -l "$APK" | grep -F "assets/_index/stage_background_map.json"
+
+          echo ""
+          echo "========================================"
+          echo "CHECKING FOR WRONG DOUBLE ASSET PATH"
+          echo "========================================"
+
+          if unzip -l "$APK" | grep -qF "assets/assets/_index/"; then
+            echo "ERROR: Found incorrect assets/assets/_index path!"
+            exit 1
+          fi
+
+          echo "No double assets path found."
+
+          echo ""
+          echo "========================================"
+          echo "CHECKING FISH AUDIO IN APK"
+          echo "========================================"
 
           unzip -p "$APK" assets/js/app.js | grep -qi "fish"
           unzip -p "$APK" assets/js/api.js | grep -qi "fishaudio"
+          unzip -p "$APK" assets/js/config.js | grep -qi "fishaudio-s21pro-flash"
+
+          echo "Fish Audio code found in APK."
 
           echo ""
-          echo "APK verification passed."
+          echo "========================================"
+          echo "CHECKING APK SIGNATURE"
+          echo "========================================"
 
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" \
+            verify \
+            --verbose \
+            "$APK"
+
+          echo ""
+          echo "========================================"
+          echo "APK VERIFICATION PASSED"
+          echo "========================================"
+
+
+      # ============================================================
+      # 13. UPLOAD APK
+      #
+      # APK sudah final dan sudah diverifikasi.
+      # Tidak ada modifikasi lagi setelah ini.
+      # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: RyzaChat-1.2.15-debug
+          name: RyzaChat-1.2.15-Fish-Debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
