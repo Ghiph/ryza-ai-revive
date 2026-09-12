@@ -32,10 +32,113 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Prepare Android web assets
+        shell: bash
+        run: |
+          set -e
+
+          echo "Preparing web assets..."
+
+          rm -rf android/app/src/main/assets
+          mkdir -p android/app/src/main/assets
+
+          # Web root files
+          cp web/index.html android/app/src/main/assets/
+
+          # Web application directories
+          cp -R web/js android/app/src/main/assets/
+          cp -R web/css android/app/src/main/assets/
+          cp -R web/vendor android/app/src/main/assets/
+
+          # IMPORTANT:
+          # Copy the CONTENTS of web/assets into Android assets/assets
+          # so runtime paths such as assets/_index/*.json resolve correctly.
+          mkdir -p android/app/src/main/assets/assets
+          cp -R web/assets/. android/app/src/main/assets/assets/
+
+          echo "Checking required files..."
+
+          test -f android/app/src/main/assets/index.html
+          test -f android/app/src/main/assets/js/app.js
+          test -f android/app/src/main/assets/js/api.js
+          test -f android/app/src/main/assets/js/config.js
+          test -f android/app/src/main/assets/assets/_index/scenes.json
+          test -f android/app/src/main/assets/assets/_index/voice_bank.json
+          test -f android/app/src/main/assets/assets/_index/world_hierarchy.json
+
+          echo "Web assets prepared successfully."
+
+      - name: Fix Android asset source directory
+        shell: bash
+        run: |
+          set -e
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("android/app/build.gradle")
+          text = path.read_text(encoding="utf-8")
+
+          old = 'assets.srcDirs = ["../../web"]'
+          new = 'assets.srcDirs = ["src/main/assets"]'
+
+          if old not in text:
+              raise SystemExit(
+                  "Expected assets.srcDirs configuration was not found "
+                  "in android/app/build.gradle"
+              )
+
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding="utf-8")
+
+          print("Android asset source directory configured correctly.")
+          PY
+
+          grep -n "assets.srcDirs" android/app/build.gradle
+
+      - name: Verify Fish Audio source
+        shell: bash
+        run: |
+          set -e
+
+          grep -qi "fish" web/js/app.js
+          grep -qi "fish" web/js/api.js
+          grep -qi "fishaudio" web/js/api.js
+          grep -qi "fishaudio-s21pro-flash" web/js/config.js
+
+          echo "Fish Audio code detected."
+
       - name: Build debug APK
         working-directory: android
         run: |
-          gradle --no-daemon --stacktrace assembleDebug
+          gradle --no-daemon --stacktrace clean assembleDebug
+
+      - name: Verify APK contents
+        shell: bash
+        run: |
+          set -e
+
+          APK="android/app/build/outputs/apk/debug/app-debug.apk"
+
+          test -f "$APK"
+
+          echo "APK size:"
+          du -h "$APK"
+
+          echo ""
+          echo "Checking APK asset paths..."
+
+          unzip -l "$APK" | grep -E \
+            "assets/index.html|assets/js/app.js|assets/js/api.js|assets/js/config.js|assets/assets/_index/scenes.json|assets/assets/_index/voice_bank.json|assets/assets/_index/world_hierarchy.json"
+
+          echo ""
+          echo "Checking Fish Audio code inside APK..."
+
+          unzip -p "$APK" assets/js/api.js | grep -qi "fishaudio"
+          unzip -p "$APK" assets/js/app.js | grep -qi "fish"
+
+          echo ""
+          echo "APK verification PASSED."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
