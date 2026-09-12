@@ -32,12 +32,12 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Check Ryza source
+      - name: Verify Ryza source
         shell: bash
         run: |
           set -e
 
-          echo "Checking required Ryza source files..."
+          echo "Checking Ryza source..."
 
           test -f web/index.html
           test -f web/js/app.js
@@ -48,11 +48,9 @@ jobs:
           test -f web/assets/_index/voice_bank.json
           test -f web/assets/_index/world_hierarchy.json
 
-          test -f scripts/pack_apk_assets.py
+          echo "Ryza web assets found."
 
-          echo "All required source files are present."
-
-      - name: Verify Fish Audio source
+      - name: Verify Fish Audio support
         shell: bash
         run: |
           set -e
@@ -61,26 +59,24 @@ jobs:
           grep -qi "fishaudio" web/js/api.js
           grep -qi "fishaudio-s21pro-flash" web/js/config.js
 
-          echo "Fish Audio support detected."
+          echo "Fish Audio support found."
 
-      - name: Prepare Android build
+      - name: Verify Android configuration
         shell: bash
         run: |
           set -e
 
-          # The Ryza Android project has its own asset packer.
-          # Gradle should build the native shell only.
-          rm -rf android/app/src/main/assets
-          mkdir -p android/app/src/main/assets
+          grep -q 'applicationId "com.ryza.chat.fish"' android/app/build.gradle
+          grep -q 'assets.srcDirs = \["../../web"\]' android/app/build.gradle
 
-          echo "Android build directory prepared."
+          echo "Android configuration is correct."
 
-      - name: Build Android APK
+      - name: Build debug APK
         working-directory: android
         run: |
           gradle --no-daemon --stacktrace clean assembleDebug
 
-      - name: Pack Ryza web assets into APK
+      - name: Verify APK
         shell: bash
         run: |
           set -e
@@ -89,33 +85,16 @@ jobs:
 
           test -f "$APK"
 
-          echo "Packing web assets..."
-
-          python3 scripts/pack_apk_assets.py "$APK" web
-
-          echo "Web assets packed."
-
-      - name: Verify APK contents
-        shell: bash
-        run: |
-          set -e
-
-          APK="android/app/build/outputs/apk/debug/app-debug.apk"
-
-          test -f "$APK"
+          echo "APK created:"
+          ls -lh "$APK"
 
           echo ""
-          echo "APK size:"
-          du -h "$APK"
-
-          echo ""
-          echo "Checking required APK assets..."
+          echo "Checking APK assets..."
 
           unzip -l "$APK" | grep -F "assets/index.html"
           unzip -l "$APK" | grep -F "assets/js/app.js"
           unzip -l "$APK" | grep -F "assets/js/api.js"
           unzip -l "$APK" | grep -F "assets/js/config.js"
-
           unzip -l "$APK" | grep -F "assets/assets/_index/scenes.json"
           unzip -l "$APK" | grep -F "assets/assets/_index/voice_bank.json"
           unzip -l "$APK" | grep -F "assets/assets/_index/world_hierarchy.json"
@@ -123,11 +102,11 @@ jobs:
           echo ""
           echo "Checking Fish Audio code..."
 
-          unzip -p "$APK" assets/js/api.js | grep -qi "fishaudio"
           unzip -p "$APK" assets/js/app.js | grep -qi "fish"
+          unzip -p "$APK" assets/js/api.js | grep -qi "fishaudio"
 
           echo ""
-          echo "APK verification PASSED."
+          echo "APK verification passed."
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
