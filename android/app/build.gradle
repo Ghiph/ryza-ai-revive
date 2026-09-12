@@ -30,6 +30,20 @@ android {
         }
     }
 
+    /*
+     * IMPORTANT:
+     *
+     * AAPT normally ignores directories beginning with "_".
+     * Ryza requires:
+     *
+     * assets/_index/
+     *
+     * so we must override the default ignore pattern.
+     */
+    aaptOptions {
+        ignoreAssetsPattern "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
     packaging {
         resources.excludes += "**/*.md"
     }
