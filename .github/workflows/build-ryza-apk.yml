@@ -14,14 +14,14 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. CHECKOUT SOURCE
+      # CHECKOUT
       # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
 
 
       # ============================================================
-      # 2. SETUP JAVA 17
+      # JAVA 17
       # ============================================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -31,15 +31,12 @@ jobs:
 
 
       # ============================================================
-      # 3. SETUP ANDROID SDK
+      # ANDROID SDK
       # ============================================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
 
 
-      # ============================================================
-      # 4. INSTALL ANDROID SDK 34
-      # ============================================================
       - name: Install Android SDK packages
         run: |
           set -e
@@ -51,7 +48,7 @@ jobs:
 
 
       # ============================================================
-      # 5. SETUP GRADLE 8.7
+      # GRADLE
       # ============================================================
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -60,9 +57,9 @@ jobs:
 
 
       # ============================================================
-      # 6. VERIFY SOURCE FILES
+      # VERIFY SOURCE
       # ============================================================
-      - name: Verify source files
+      - name: Verify Ryza source
         run: |
           set -e
 
@@ -73,7 +70,7 @@ jobs:
           test -f web/js/api.js
           test -f web/js/config.js
 
-          echo "Checking required world index files..."
+          echo "Checking world index..."
 
           test -f web/assets/_index/scenes.json
           test -f web/assets/_index/voice_bank.json
@@ -81,46 +78,29 @@ jobs:
           test -f web/assets/_index/npc_placement.json
           test -f web/assets/_index/stage_background_map.json
 
-          echo "Checking Fish Audio source..."
+          echo "Ryza source verification PASSED."
+
+
+      # ============================================================
+      # VERIFY FISH AUDIO
+      # ============================================================
+      - name: Verify Fish Audio support
+        run: |
+          set -e
+
+          echo "Checking Fish Audio support..."
 
           grep -qi "fish" web/js/app.js
           grep -qi "fishaudio" web/js/api.js
           grep -qi "fishaudio-s21pro-flash" web/js/config.js
 
-          echo "Source verification PASSED."
+          echo "Fish Audio verification PASSED."
 
 
       # ============================================================
-      # 7. PREPARE ANDROID ASSETS
-      #
-      # IMPORTANT:
-      #
-      # web/
-      # ├── index.html
-      # ├── js/
-      # ├── css/
-      # ├── vendor/
-      # └── assets/
-      #     ├── _index/
-      #     ├── audio/
-      #     ├── spine/
-      #     └── ...
-      #
-      # Android membutuhkan:
-      #
-      # APK assets/
-      # ├── index.html
-      # ├── js/
-      # ├── css/
-      # ├── vendor/
-      # ├── _index/
-      # ├── audio/
-      # ├── spine/
-      # └── ...
-      #
-      # Jadi web/assets/* harus FLATTEN ke root assets Android.
+      # PREPARE ANDROID ASSETS
       # ============================================================
-      - name: Prepare flattened Android assets
+      - name: Prepare Android assets
         run: |
           set -e
 
@@ -130,20 +110,19 @@ jobs:
 
           mkdir -p android/app/src/main/assets
 
-          # Copy semua file/folder dari web/
-          # KECUALI folder web/assets
+          # Copy web files except web/assets
           rsync -a \
             --exclude="assets/" \
             web/ \
             android/app/src/main/assets/
 
-          # Flatten isi web/assets/ langsung ke Android assets/
+          # Flatten web/assets into Android assets root
           rsync -a \
             web/assets/ \
             android/app/src/main/assets/
 
           echo ""
-          echo "Checking staged Android assets..."
+          echo "Checking staged assets..."
 
           test -f android/app/src/main/assets/index.html
           test -f android/app/src/main/assets/js/app.js
@@ -157,79 +136,51 @@ jobs:
           test -f android/app/src/main/assets/_index/stage_background_map.json
 
           echo ""
-          echo "Staged assets:"
-          find android/app/src/main/assets -maxdepth 2 -type f | head -100
+          echo "IMPORTANT _index files:"
+          find android/app/src/main/assets/_index -maxdepth 1 -type f
 
           echo ""
-          echo "Asset preparation PASSED."
+          echo "Android assets prepared successfully."
 
 
       # ============================================================
-      # 8. VERIFY GRADLE CONFIGURATION
+      # SHOW GRADLE CONFIG
       # ============================================================
-      - name: Verify Android configuration
+      - name: Show Android configuration
         run: |
-          set -e
+          echo "========================================"
+          echo "BUILD.GRADLE"
+          echo "========================================"
 
-          echo "Checking android/app/build.gradle..."
-
-          grep -F 'applicationId "com.ryza.chat.fish"' \
-            android/app/build.gradle
-
-          grep -F 'assets.srcDirs = ["src/main/assets"]' \
-            android/app/build.gradle
+          cat android/app/build.gradle
 
           echo ""
-          echo "Android configuration PASSED."
+          echo "========================================"
+          echo "ASSET DIRECTORY"
+          echo "========================================"
+
+          find android/app/src/main/assets \
+            -maxdepth 2 \
+            -type f | head -100
 
 
       # ============================================================
-      # 9. VERIFY FISH AUDIO SUPPORT
-      # ============================================================
-      - name: Verify Fish Audio support
-        run: |
-          set -e
-
-          echo "Checking Fish Audio support..."
-
-          grep -qi "fish" web/js/app.js
-          grep -qi "fishaudio" web/js/api.js
-          grep -qi "fishaudio-s21pro-flash" web/js/config.js
-
-          echo "Fish Audio support PASSED."
-
-
-      # ============================================================
-      # 10. CLEAN PREVIOUS BUILD
-      # ============================================================
-      - name: Clean Android build
-        working-directory: android
-        run: |
-          gradle --no-daemon clean
-
-
-      # ============================================================
-      # 11. BUILD DEBUG APK
-      #
-      # Gradle akan:
-      # - compile
-      # - package assets
-      # - zip APK
-      # - sign debug APK
-      #
-      # JANGAN memodifikasi APK setelah step ini.
+      # BUILD APK
       # ============================================================
       - name: Build debug APK
         working-directory: android
         run: |
+          set -e
+
           gradle \
             --no-daemon \
             --stacktrace \
+            clean \
             assembleDebug
 
 
       # ============================================================
-      # 12. VERIFY APK FILE
+      # VERIFY APK
       # ============================================================
       - name: Verify APK
         run: |
@@ -238,16 +189,20 @@ jobs:
           APK="android/app/build/outputs/apk/debug/app-debug.apk"
 
           echo "========================================"
-          echo "APK INFORMATION"
+          echo "APK CREATED"
           echo "========================================"
 
           test -f "$APK"
 
           ls -lh "$APK"
 
+
+          # --------------------------------------------------------
+          # BASIC ASSETS
+          # --------------------------------------------------------
           echo ""
           echo "========================================"
-          echo "CHECKING APK ASSETS"
+          echo "CHECKING BASIC ASSETS"
           echo "========================================"
 
           unzip -l "$APK" | grep -F "assets/index.html"
@@ -255,6 +210,10 @@ jobs:
           unzip -l "$APK" | grep -F "assets/js/api.js"
           unzip -l "$APK" | grep -F "assets/js/config.js"
 
+
+          # --------------------------------------------------------
+          # WORLD INDEX
+          # --------------------------------------------------------
           echo ""
           echo "========================================"
           echo "CHECKING WORLD INDEX"
@@ -266,21 +225,29 @@ jobs:
           unzip -l "$APK" | grep -F "assets/_index/npc_placement.json"
           unzip -l "$APK" | grep -F "assets/_index/stage_background_map.json"
 
+
+          # --------------------------------------------------------
+          # MAKE SURE DOUBLE ASSETS PATH DOES NOT EXIST
+          # --------------------------------------------------------
           echo ""
           echo "========================================"
-          echo "CHECKING FOR WRONG DOUBLE ASSET PATH"
+          echo "CHECKING ASSET PATH"
           echo "========================================"
 
           if unzip -l "$APK" | grep -qF "assets/assets/_index/"; then
-            echo "ERROR: Found incorrect assets/assets/_index path!"
+            echo "ERROR: Wrong assets/assets/_index path detected!"
             exit 1
           fi
 
-          echo "No double assets path found."
+          echo "Asset path is correct."
 
+
+          # --------------------------------------------------------
+          # FISH AUDIO
+          # --------------------------------------------------------
           echo ""
           echo "========================================"
-          echo "CHECKING FISH AUDIO IN APK"
+          echo "CHECKING FISH AUDIO"
           echo "========================================"
 
           unzip -p "$APK" assets/js/app.js | grep -qi "fish"
@@ -289,6 +256,10 @@ jobs:
 
           echo "Fish Audio code found in APK."
 
+
+          # --------------------------------------------------------
+          # APK SIGNATURE
+          # --------------------------------------------------------
           echo ""
           echo "========================================"
           echo "CHECKING APK SIGNATURE"
@@ -306,10 +277,7 @@ jobs:
 
 
       # ============================================================
-      # 13. UPLOAD APK
-      #
-      # APK sudah final dan sudah diverifikasi.
-      # Tidak ada modifikasi lagi setelah ini.
+      # UPLOAD FINAL APK
       # ============================================================
       - name: Upload APK
         uses: actions/upload-artifact@v4
